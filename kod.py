@@ -1,9 +1,14 @@
+"""
+WSI 26L - ćwiczenie 1 - Przeszukiwanie przestrzeni
+Autor: Piotr Kozłowski
+"""
+
 from autograd import grad
 import matplotlib.pyplot as plt
 import numpy as np
 
-def grad_descent(func: callable, x: np.array, alpha: float):
-    ITER_MAX = 100
+def grad_descent(func: callable, x: np.array, lr: float):
+    ITER_MAX = 1000
     EPSILON = 1e-6
 
     trajectory = [x.copy()]
@@ -13,10 +18,10 @@ def grad_descent(func: callable, x: np.array, alpha: float):
         g = grad_f(x)
         if np.linalg.norm(g) < EPSILON:
             break
-        x = x - alpha * g
+        x = x - lr * g
         trajectory.append(x.copy())
     
-    return np.array(trajectory)
+    return np.array(trajectory), x
 
 def sum_of_sqrs(x: np.array):
     x1 = x[0]
@@ -57,18 +62,23 @@ def visualize_fun(obj_fun: callable, trajectory: np.ndarray):
     plt.show()
 
 if __name__ == "__main__":
-    # testy dla różnych kroków
-    x0 = np.array([8.0, -6.0])
-    for alpha in [0.001, 0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75]:
-        traj1 = grad_descent(sum_of_sqrs, x0, alpha)
-        visualize_fun(sum_of_sqrs, traj1)
-    
-    # testy dla różnych punktów początkowych
-    x01 = np.array([8.0, -6.0])
-    x02 = np.array([-10.0, 10.0])
-    x03 = np.array([2.0, 1.0])
-    alpha = 0.1
+    # funkcja_celu = sum_of_sqrs
+    funkcja_celu = sum_of_sqrs
 
-    for x0 in [x01, x02, x03]:
-        traj1 = grad_descent(sum_of_sqrs, x0, alpha)
-        visualize_fun(sum_of_sqrs, traj1)
+    # testy dla różnych kroków
+    x0 = np.array([8.012, -6.430])
+    for lr in [0.001, 0.01, 0.1, 0.25, 0.49, 0.5, 0.501, 0.75, 1, 1.1, 1.25, 1.5, 1.9, 1.91, 1.92, 1.93]:
+        traj1, min = grad_descent(funkcja_celu, x0, lr)
+        print(f"Learning rate: {lr}, ilość iteracji: {traj1.shape[0]-1}, znalezione minimum [x1: {min[0]}, x2: {min[1]}]")
+        visualize_fun(funkcja_celu, traj1)
+    
+    # # testy dla różnych punktów początkowych
+    # x01 = np.array([8.012, 6.430])
+    # x02 = np.array([-10.0, 1.0])
+    # x03 = np.array([2.034, 1.054532])
+    # lr = 0.5
+
+    # for x0 in [x01, x02, x03]:
+    #     traj1, min = grad_descent(funkcja_celu, x0, lr)
+    #     print(f"Punkt startowy: [{x0[0]} {x0[1]}], ilość iteracji: {traj1.shape[0]-1}, znalezione minimum [x1: {min[0]}, x2: {min[1]}]")
+    #     visualize_fun(funkcja_celu, traj1)
