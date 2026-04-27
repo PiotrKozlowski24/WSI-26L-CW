@@ -3,6 +3,7 @@ import numpy as np
 import csv
 import matplotlib.pyplot as plt
 
+EXE_NUM = 100
 
 def load_csv(filepath):
     rows = []
@@ -12,7 +13,7 @@ def load_csv(filepath):
                 rows.append(row)
     return np.array(rows)
 
-def train_val_test_split(X, y, val_ratio=0.2, test_ratio=0.2, seed=42):
+def train_val_test_split(X, y, val_ratio=0.15, test_ratio=0.15, seed=42):
     rng = np.random.default_rng(seed)
     idx = rng.permutation(len(X))
     n_test = int(len(X) * test_ratio)
@@ -97,90 +98,191 @@ class ID3Classifier:
         return count_nodes(self._tree)
 
 
+# ---------------- MAIN ----------------
 if __name__ == "__main__":
     raw = load_csv('tic-tac-toe.data')
     X, y = raw[:, :-1], raw[:, -1]
 
-    X_train, X_val, X_test, y_train, y_val, y_test = train_val_test_split(X, y)
-    print(f"Trening: {len(X_train)}, Walidacja: {len(X_val)}, Test: {len(X_test)}")
+    seeds = list(range(EXE_NUM))
 
-    # szuka najlepszej głębokości
-    best_depth, best_acc = 1, 0.0
-    for d in range(1, 15):
-        clf = ID3Classifier(max_depth=d)
-        clf.fit(X_train, y_train)
-        acc = clf.score(X_val, y_val)
-        print(f"depth={d:2d}  val_acc={acc:.3f}")
-        if acc > best_acc:
-            best_acc, best_depth = acc, d
-
-    print(f"\nNajlepsza głębokość: {best_depth}  (val_acc={best_acc:.3f})")
     print(f"{'Depth':>5} {'Train':>8} {'Val':>8} {'Test':>8} {'Nodes':>8}")
     print("-" * 45)
 
-    depths = list(range(1, 15))
-    train_accs, val_accs, test_accs, node_counts = [], [], [], []
+    depths = list(range(1, X.shape[1] + 2))
+    train_accs, val_accs, test_accs = [], [], []
+    train_stds, val_stds, test_stds = [], [], []
+    node_counts = []
+    node_stds = []
 
     for d in depths:
-        clf = ID3Classifier(max_depth=d)
-        clf.fit(X_train, y_train)
-        tr, v, te, n = (clf.score(X_train, y_train), clf.score(X_val, y_val),
-                        clf.score(X_test, y_test),   clf.count_nodes())
-        train_accs.append(tr); val_accs.append(v)
-        test_accs.append(te);  node_counts.append(n)
-        print(f"{d:5d} {tr:8.3f} {v:8.3f} {te:8.3f} {n:8d}")
+        tr_list, val_list, te_list, node_list = [], [], [], []
 
-    # Test na zbiorze testowym
-    final_clf = ID3Classifier(max_depth=best_depth)
-    final_clf.fit(X_train, y_train)
-    test_preds = final_clf.predict(X_test)
-    print(f"\nTest accuracy: {final_clf.score(X_test, y_test):.3f}")
-    classes, matrix = confusion_matrix(y_test, test_preds)
+        for seed in seeds:
+            X_tr, X_v, X_te, y_tr, y_v, y_te = train_val_test_split(X, y, seed=seed)
+            clf = ID3Classifier(max_depth=d)
+            clf.fit(X_tr, y_tr)
 
-    # macierz pomyłek
-    fig, ax = plt.subplots()
-    im = ax.imshow(matrix, cmap='Blues', vmax=max(max(r) for r in matrix) * 2)
-    ax.set_title('Macierz pomyłek')
-    ax.set_xticks(range(len(classes))); ax.set_xticklabels(classes)
-    ax.set_yticks(range(len(classes))); ax.set_yticklabels(classes)
-    ax.set_xlabel('Przewidziana'); ax.set_ylabel('Prawdziwa')
-    ax.grid(False)
-    for i in range(len(classes)):
-        for j in range(len(classes)):
-            ax.text(j, i, matrix[i][j], ha='center', va='center', fontsize=14)
-    plt.tight_layout(); plt.show()
+            tr_list.append(clf.score(X_tr, y_tr))
+            val_list.append(clf.score(X_v, y_v))
+            te_list.append(clf.score(X_te, y_te))
+            node_list.append(clf.count_nodes())
 
-    # wykres dokładności na wszystkich zbiorach danych
+        train_accs.append(np.mean(tr_list))
+        val_accs.append(np.mean(val_list))
+        test_accs.append(np.mean(te_list))
+
+        train_stds.append(np.std(tr_list))
+        val_stds.append(np.std(val_list))
+        test_stds.append(np.std(te_list))
+
+        node_counts.append(np.mean(node_list))
+        node_stds.append(np.std(node_list))
+
+        print(f"{d:5d} m:{train_accs[-1]:8.2f} std:{train_stds[-1]:8.2f},  m:{val_accs[-1]:8.2f} std:{val_stds[-1]:8.2f}, m:{test_accs[-1]:8.2f} std:{test_stds[-1]:8.2f}, {int(node_counts[-1]):8d}")
+
+    best_depth = depths[np.argmax(val_accs)]
+
+    # ---------------- CONFUSION MATRICES (4 MODELS) ----------------
+
+    X_train, X_val, X_test, y_train, y_val, y_test = train_val_test_split(X, y, seed=42)
+
+    def get_matrix(clf):
+        preds = clf.predict(X_test)
+        classes, matrix = confusion_matrix(y_test, preds)
+        return np.array(matrix), classes
+
+
+    # --- Train models ---
+    clf_d1 = ID3Classifier(max_depth=1).fit(X_train, y_train)
+    clf_d3 = ID3Classifier(max_depth=3).fit(X_train, y_train)
+    clf_d9 = ID3Classifier(max_depth=9).fit(X_train, y_train)
+    clf_best = ID3Classifier(max_depth=best_depth).fit(X_train, y_train)
+
+    # --- Confusion matrices ---
+    mat_d1, classes = get_matrix(clf_d1)
+    mat_d3, _ = get_matrix(clf_d3)
+    mat_d9, _ = get_matrix(clf_d9)
+    mat_best, _ = get_matrix(clf_best)
+
+
+    # ---------------- PLOTTING ----------------
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    axes = axes.ravel()
+
+
+    def plot(ax, mat, classes, title):
+        mat = np.array(mat)
+
+        row_sums = mat.sum(axis=1, keepdims=True)
+        pct = np.divide(mat, row_sums, where=row_sums != 0) * 100
+
+        ax.imshow(mat, cmap='Blues', alpha=0.85)
+
+        ax.set_title(title, fontsize=14)
+        ax.set_xticks(range(len(classes)))
+        ax.set_yticks(range(len(classes)))
+        ax.set_xticklabels(classes, fontsize=14)
+        ax.set_yticklabels(classes, fontsize=14)
+
+        ax.set_xlabel("Predykcje", fontsize=14)
+        ax.set_ylabel("Prawdziwe", fontsize=14)
+
+        for i in range(len(classes)):
+            for j in range(len(classes)):
+                ax.text(
+                    j, i,
+                    f"{mat[i][j]}\n({pct[i][j]:.1f}%)",
+                    ha='center',
+                    va='center',
+                    fontsize=14
+                )
+
+
+    plot(axes[0], mat_d1, classes, "Głębokość = 1")
+    plot(axes[1], mat_d3, classes, "Głębokość = 3")
+    plot(axes[2], mat_best, classes, f"Głębokość = {best_depth} (najlepsza dokł.)")
+    plot(axes[3], mat_d9, classes, "Głębokość = 9")
+
+    plt.tight_layout()
+    plt.savefig("confusion_matrices_4.png", dpi=300, bbox_inches="tight")
+    plt.show()
+
+    # ---------------- ACCURACY PLOT ----------------
     plt.figure(figsize=(8, 4))
-    plt.plot(depths, train_accs, marker='o', label='Treningowy')
-    plt.plot(depths, val_accs,   marker='o', label='Walidacyjny')
-    plt.plot(depths, test_accs,  marker='o', label='Testowy')
-    plt.xlabel('Maksymalna głębokość'); plt.ylabel('Dokładność klasyfikacji')
-    plt.title('Dokładność klasyfikatora w zależności od maksymalnej głębokości drzewa')
-    plt.legend(); plt.grid(); plt.show()
 
-    # wykres rozmiar drzewa vs głębokość
+    plt.plot(depths, train_accs, linestyle='-', marker='o', linewidth=1.5, label='Treningowy')
+    plt.fill_between(depths,
+                     np.array(train_accs) - np.array(train_stds),
+                     np.array(train_accs) + np.array(train_stds),
+                     alpha=0.1)
+
+    plt.plot(depths, val_accs, linestyle='--', marker='o', linewidth=2, label='Walidacyjny')
+    plt.fill_between(depths,
+                     np.array(val_accs) - np.array(val_stds),
+                     np.array(val_accs) + np.array(val_stds),
+                     alpha=0.15)
+
+    plt.plot(depths, test_accs, linestyle='-.', marker='x', linewidth=2, label='Testowy')
+    plt.fill_between(depths,
+                     np.array(test_accs) - np.array(test_stds),
+                     np.array(test_accs) + np.array(test_stds),
+                     alpha=0.15)
+
+    plt.xlabel('Maksymalna głębokość')
+    plt.ylabel('Dokładność')
+    plt.title(f'Średnia dokładność ({EXE_NUM} uruchomień)')
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("accuracy_plot.png", dpi=300, bbox_inches="tight")
+    plt.show()
+
+    # ---------------- TREE SIZE PLOT (FIXED) ----------------
     plt.figure(figsize=(8, 4))
-    plt.plot(depths, node_counts, marker='o')
-    plt.xlabel('Maksymalna głębokość'); plt.ylabel('Liczba węzłów')
-    plt.title('Rozmiar drzewa w zależności od maksymalnej głębokości')
-    plt.grid(); plt.show()
 
-   # test różnych stosunków podziałów danych na zbiory 'train', 'val' i 'test'
-    print("\nTEST RÓŻNYCH PODZIAŁÓW DANYCH")
-    split_configs = [
-        (0.01, 0.01), (0.02, 0.02), (0.05, 0.05),
-        (0.1, 0.1),   (0.2, 0.2),   (0.3, 0.2),
-        (0.2, 0.3),   (0.1, 0.3),   (0.3, 0.3),
-    ]
-    seeds = [0, 7, 21, 42, 99]
+    plt.plot(depths, node_counts, linestyle='-', marker='o', label='Średnia liczba węzłów')
+
+    plt.fill_between(depths,
+                     np.array(node_counts) - np.array(node_stds),
+                     np.array(node_counts) + np.array(node_stds),
+                     alpha=0.2)
+
+    plt.xlabel('Maksymalna głębokość')
+    plt.ylabel('Liczba węzłów')
+    plt.title(f'Rozmiar drzewa ({EXE_NUM} uruchomień)')
+    plt.tight_layout()
+    plt.savefig("tree_size_plot.png", dpi=300, bbox_inches="tight")
+    plt.show()
+
+    # ---------------- LEARNING CURVE EXPERIMENT ----------------
+    print("\nLEARNING CURVE: ACCURACY vs TRAIN SET SIZE")
+
+    test_ratio = 0.2
+    train_sizes = [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.76, 0.77, 0.78, 0.79, 0.8]
+
     results = []
 
-    for val_ratio, test_ratio in split_configs:
-        accs, best_depths = [], []
+    for train_ratio in train_sizes:
+        accs, depths = [], []
+
         for seed in seeds:
-            X_tr, X_v, X_te, y_tr, y_v, y_te = train_val_test_split(
-                X, y, val_ratio=val_ratio, test_ratio=test_ratio, seed=seed)
+            rng = np.random.default_rng(seed)
+            idx = rng.permutation(len(X))
+
+            n_test = int(len(X) * test_ratio)
+            test_idx = idx[:n_test]
+
+            remaining = idx[n_test:]
+
+            n_train = int(len(X) * train_ratio)
+            train_idx = remaining[:n_train]
+            val_idx = remaining[n_train:]
+
+            X_tr, y_tr = X[train_idx], y[train_idx]
+            X_v, y_v = X[val_idx], y[val_idx]
+            X_te, y_te = X[test_idx], y[test_idx]
+
+            # --- choose best depth ---
             bd, ba = 1, 0.0
             for d in range(1, 15):
                 clf = ID3Classifier(max_depth=d)
@@ -188,100 +290,58 @@ if __name__ == "__main__":
                 acc = clf.score(X_v, y_v)
                 if acc > ba:
                     ba, bd = acc, d
+
+            # --- final model ---
             final = ID3Classifier(max_depth=bd)
             final.fit(X_tr, y_tr)
+
             accs.append(final.score(X_te, y_te))
-            best_depths.append(bd)
+            depths.append(bd)
 
         mean_acc = np.mean(accs)
-        std_acc  = np.std(accs)
-        mean_depth = np.mean(best_depths)
-        train_size = int(len(X) * (1 - val_ratio - test_ratio))
-        print(f"val={val_ratio}, test={test_ratio}, train_n={train_size}"
-              f" -> acc={mean_acc:.3f}±{std_acc:.3f}, depth={mean_depth:.1f}")
-        results.append((val_ratio, test_ratio, mean_acc, std_acc, mean_depth, train_size))
+        std_acc = np.std(accs)
 
-    split_labels = [f"v={r[0]},t={r[1]}" for r in results]
+        mean_depth = np.mean(depths)
+        std_depth = np.std(depths)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 7), sharex=True)
+        print(
+            f"train_ratio={train_ratio:.2f} -> "
+            f"acc={mean_acc:.3f}±{std_acc:.3f}, "
+            f"depth={mean_depth:.2f}±{std_depth:.2f}"
+        )
 
-    ax1.errorbar(split_labels, [r[2] for r in results], yerr=[r[3] for r in results],
-                 marker='o', capsize=4, color='steelblue')
-    ax1.set_ylabel('Dokładność (test)')
-    ax1.set_title('Dokładność klasyfikatora dla różnych podziałów danych')
-    ax1.set_ylim(0, 1.05)
-    ax1.grid()
+        results.append((train_ratio, mean_acc, std_acc, mean_depth, std_depth))
 
-    ax2.plot(split_labels, [r[4] for r in results], marker='o', color='darkorange')
-    ax2.set_ylabel('Wybrana głębokość')
-    ax2.set_title('Średnia wybrana głębokość')
-    ax2.grid()
+    train_sizes = [r[0] for r in results]
+    x = np.array(train_sizes)
 
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
+    mean_acc = np.array([r[1] for r in results])
+    std_acc  = np.array([r[2] for r in results])
 
-    # test odporności algorytmu na różne seedy losowości podziału danych
-    print("\nTEST ODPORNOŚCI NA SEED")
-    seeds = [0, 7, 13, 21, 42, 55, 77, 99, 123, 256]
-    seed_val_accs, seed_test_accs, seed_best_depths = [], [], []
-
-    print(f"{'Seed':>6} {'Depth':>6} {'ValAcc':>8} {'TestAcc':>8}")
-    print("-" * 35)
-    for seed in seeds:
-        X_tr, X_v, X_te, y_tr, y_v, y_te = train_val_test_split(X, y, seed=seed)
-        bd, ba = 1, 0.0
-        for d in range(1, 15):
-            clf = ID3Classifier(max_depth=d)
-            clf.fit(X_tr, y_tr)
-            acc = clf.score(X_v, y_v)
-            if acc > ba:
-                ba, bd = acc, d
-        final = ID3Classifier(max_depth=bd)
-        final.fit(X_tr, y_tr)
-        ta = final.score(X_te, y_te)
-        seed_val_accs.append(ba)
-        seed_test_accs.append(ta)
-        seed_best_depths.append(bd)
-        print(f"{seed:6d} {bd:6d} {ba:8.3f} {ta:8.3f}")
-
-    print(f"\nTest acc: mean={np.mean(seed_test_accs):.3f}  std={np.std(seed_test_accs):.3f}"
-          f"  min={np.min(seed_test_accs):.3f}  max={np.max(seed_test_accs):.3f}")
-
-    mean_acc = np.mean(seed_test_accs)
-    std_acc  = np.std(seed_test_accs)
-    xs = range(len(seeds))
+    mean_depth = np.array([r[3] for r in results])
+    std_depth  = np.array([r[4] for r in results])
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
 
-    # --- accuracy: val i test obok siebie ---
-    width = 0.4
-    bars_v = ax1.bar([x - width/2 for x in xs], seed_val_accs,  width, color='steelblue', alpha=0.7, label='Walidacja')
-    bars_t = ax1.bar([x + width/2 for x in xs], seed_test_accs, width, color='darkorange', alpha=0.7, label='Test')
-    ax1.axhline(mean_acc, color='red', linestyle='--', label=f'Średnia test = {mean_acc:.3f}')
-    ax1.fill_between([-0.5, len(seeds) - 0.5], mean_acc - std_acc, mean_acc + std_acc,
-                     color='red', alpha=0.08, label=f'±std = {std_acc:.3f}')
-    for bar in bars_v:
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-                 f'{bar.get_height():.2f}', ha='center', va='bottom', fontsize=8)
-    for bar in bars_t:
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-                 f'{bar.get_height():.2f}', ha='center', va='bottom', fontsize=8)
-    ax1.set_ylabel('Dokładność'); ax1.set_ylim(0, 1.15)
-    ax1.set_title('Odporność modelu na seed podziału zbioru')
-    ax1.legend(); ax1.grid(axis='y')
+    # -------- Accuracy --------
+    ax1.plot(x, mean_acc, marker='o', linewidth=2, color='steelblue')
+    ax1.fill_between(x, mean_acc - std_acc, mean_acc + std_acc, alpha=0.25)
 
-    # --- wybrana głębokość ---
-    bars_d = ax2.bar(xs, seed_best_depths, color='green', alpha=0.7)
-    for bar in bars_d:
-        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
-                 str(int(bar.get_height())), ha='center', va='bottom', fontsize=9)
-    ax2.set_ylabel('Wybrana głębokość')
-    ax2.set_title('Głębokość drzewa wybrana dla każdego seedu')
-    ax2.set_yticks(range(1, max(seed_best_depths) + 2))
-    ax2.grid(axis='y')
+    ax1.set_ylabel("Dokładność")
+    ax1.set_title("Dokładność klasyfikatora vs Rozmiar zbioru treningowego")
+    ax1.set_ylim(0.5, 1.0)
+    ax1.grid(alpha=0.3)
 
-    plt.xticks(xs, seeds)
-    plt.xlabel('Seed')
+    # -------- Depth --------
+    ax2.plot(x, mean_depth, marker='o', linewidth=2, color='darkorange')
+    ax2.fill_between(x, mean_depth - std_depth, mean_depth + std_depth, alpha=0.25,  color='darkorange')
+
+    ax2.set_xlabel("Rozmiar zbioru treningowego")
+    ax2.set_ylabel("Głębokość drzewa decyzyjnego")
+    ax2.set_title("Ilość węzłów drzewa vs Rozmiar zbioru treningowego")
+    ax2.grid(alpha=0.3)
+
+
     plt.tight_layout()
+    plt.savefig("learning_curve.png", dpi=300, bbox_inches="tight")
     plt.show()
